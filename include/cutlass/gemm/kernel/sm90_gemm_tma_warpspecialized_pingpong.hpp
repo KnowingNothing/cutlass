@@ -455,6 +455,18 @@ public:
     // Wait for all thread blocks in the Cluster
     cluster_wait_fn();
 
+    if (blockIdx.x == 1 and blockIdx.y == 0 and threadIdx.x == 0) {
+      print("gA_mkl: "); print(gA_mkl); print("\n");
+      print("gB_nkl: "); print(gB_nkl); print("\n");
+      print("k_tile_count: "); print(k_tile_count); print("\n");
+      print("SmemLayoutAtomA: "); print(CollectiveMainloop_::SmemLayoutAtomA()); print("\n");
+      print("SmemLayoutA: "); print(CollectiveMainloop_::SmemLayoutA()); print("\n");
+      // printf("block: %d %d %d, thread: %d, %d, %d\n", blockIdx.x, blockIdx.y, blockIdx.z, threadIdx.x, threadIdx.y, threadIdx.z);
+
+      print("SmemLayoutAtomB: "); print(CollectiveMainloop_::SmemLayoutAtomB()); print("\n");
+      print("SmemLayoutB: "); print(CollectiveMainloop_::SmemLayoutB()); print("\n");
+    }
+
     if (warp_group_role == WarpGroupRole::Producer) {
       cutlass::arch::warpgroup_reg_dealloc<LoadRegisterRequirement>();
 

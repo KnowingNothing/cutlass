@@ -636,7 +636,7 @@ construct_tma_gbasis(Tensor<GEngine,GLayout> const& gtensor,       // The origin
   // tma_box_shape:gmem_mode
   auto tma_gbasis = group<cute::min(rank(tma_gbasis_full),4),-1>(tma_gbasis_full);
 
-#if 0
+#if 1
   print("tile_gstride : "); print(tile_gstride); print("\n");
   print("tma_gstride  : "); print(tma_gstride); print("\n");
   print("gbasis       : "); print(gbasis); print("\n");
@@ -750,6 +750,18 @@ make_tma_copy_desc(Tensor<GEngine,GLayout> const& gtensor,         // The origin
 
   fill_tma_gmem_shape_stride(gtensor_T, stride(tma_gbasis), gmem_prob_shape, gmem_prob_stride);
 
+  print("shape: ");
+  for (auto v : gmem_prob_shape) {
+    print(v); print(" ");
+  }
+  print("\n");
+
+  print("stride: ");
+  for (auto v : gmem_prob_stride) {
+    print(v); print(" ");
+  }
+  print("\n");
+
   assert((reinterpret_cast<uint64_t>(gmem_address) & 0b1111) == 0);  // Address must be 16B-aligned
 
   assert(gmem_prob_shape[0] >= (uint64_t(1)));               // Size must be min 1
@@ -792,6 +804,17 @@ make_tma_copy_desc(Tensor<GEngine,GLayout> const& gtensor,         // The origin
     smem_box_shape[i] = ceil_div(smem_box_shape[i], multicast);
     multicast = new_mult;
   }
+
+  print("smem_box_shape: ");
+  for (auto v : smem_box_shape) {
+    print(v); print("\n");
+  }
+  print("smem_box_stride: ");
+  for (auto v : smem_box_stride) {
+    print(v); print("\n");
+  }
+  print("tma_dim: "); print(tma_dim); print("\n");
+
 
   assert(smem_box_shape[0] >= (uint32_t(1)));                // Size must be min 1
   assert(smem_box_shape[0] <= (uint32_t(1) << 8));           // Size must be max 2^8 = 256
@@ -898,7 +921,7 @@ make_tma_copy_desc(Tensor<GEngine,GLayout> const& gtensor,         // The origin
     }
   });
 
-#if 0
+#if 1
     print("gmem_tma_basis_stride : "); print(gmem_tma_basis_stride); print("\n");
 #endif
 
@@ -949,7 +972,7 @@ make_tma_copy_atom(CopyOp,
 
   Traits tma_traits{tma_desc, aux_params};
 
-#if 0
+#if 1
   print("num_bits_per_tma :  "); print(num_bits_per_tma); print("\n");
   print("g_stride_bases   :  "); print(tma_traits.aux_params_.g_stride_); print("\n");
 #endif
@@ -1000,7 +1023,8 @@ make_tma_copy_tiled(CopyOp                  const& copy_op,
   // Combine with the T mapping
   [[maybe_unused]] auto layout_TV = make_layout(layout_T, layout_V);
 
-#if 0
+#if 1
+  print("num_elems_per_tma : "); print(num_elems_per_tma); print("\n");
   print("cta_tiler : "); print(cta_tiler); print("\n");
   print("layout_v : "); print(layout_v); print("\n");
   print("layout_V : "); print(layout_V); print("\n");

@@ -280,6 +280,12 @@ struct CollectiveMma<
     Tensor gA_mkl = local_tile(mA_mkl, TileShape{}, make_coord(_,_,_), Step<_1, X,_1>{});        // (BLK_M,BLK_K,m,k,l)
     Tensor gB_nkl = local_tile(mB_nkl, TileShape{}, make_coord(_,_,_), Step< X,_1,_1>{});        // (BLK_N,BLK_K,n,k,l)
 
+    if (blockIdx.x == 0 and blockIdx.y == 0 and threadIdx.x == 0) {
+      print("mA_mkl: "); print(mA_mkl); print("\n");
+      print("gA_mkl: "); print(gA_mkl); print("\n");
+      print("mB_nkl: "); print(mB_nkl); print("\n");
+      print("gB_nkl: "); print(gB_nkl); print("\n");
+    }
     return cute::make_tuple(gA_mkl, gB_nkl);
   }
 
@@ -353,6 +359,24 @@ struct CollectiveMma<
         }
       }
 
+      if (blockIdx.x == 1 and blockIdx.y == 0 and threadIdx.x == 0) {
+        // print("block_tma_a: "); print(block_tma_a); print("\n");
+        // print("block_tma_b: "); print(block_tma_b); print("\n");
+        print("block_rank_in_cluster: "); print(block_rank_in_cluster); print("\n");
+        print("blockIdx: "); print(blockIdx.x); print(" "); print(blockIdx.y); print("\n");
+        print("mcast_mask_a: "); print(mcast_mask_a); print("\n");
+        print("mcast_mask_b: "); print(mcast_mask_b); print("\n");
+        print("blk_coord: "); print(blk_coord); print("\n");
+        print("gA: "); print(gA); print("\n");
+        print("gB: "); print(gB); print("\n");
+        print("sA: "); print(sA); print("\n");
+        print("sB: "); print(sB); print("\n");
+        print("tAgA: "); print(tAgA); print("\n");
+        print("tAsA: "); print(tAsA); print("\n");
+        print("tBgB: "); print(tBgB); print("\n");
+        print("tBsB: "); print(tBsB); print("\n");
+      }
+
       // Mainloop
       CUTLASS_PRAGMA_NO_UNROLL
       for ( ; k_tile_count > 0; --k_tile_count)
@@ -368,6 +392,12 @@ struct CollectiveMma<
         BarrierType* tma_barrier = pipeline.producer_get_barrier(smem_pipe_write);
 
         int write_stage = smem_pipe_write.index();
+        if (blockIdx.x == 1 and blockIdx.y == 0 and threadIdx.x == 0) {
+          print("tAgA(_,_,_,*k_tile_iter): "); print(tAgA(_,_,_,*k_tile_iter)); print("\n");
+          print("tAsA(_,_,_,*k_tile_iter): "); print(tAsA(_,_,_,write_stage)); print("\n");
+          print("tBgB(_,_,_,*k_tile_iter): "); print(tBgB(_,_,_,*k_tile_iter)); print("\n");
+          print("tBsB(_,_,_,*k_tile_iter): "); print(tBsB(_,_,_,write_stage)); print("\n");
+        }
         copy(mainloop_params.tma_load_a.with(*tma_barrier, mcast_mask_a), tAgA(_,_,_,*k_tile_iter), tAsA(_,_,_,write_stage));
         copy(mainloop_params.tma_load_b.with(*tma_barrier, mcast_mask_b), tBgB(_,_,_,*k_tile_iter), tBsB(_,_,_,write_stage));
         ++k_tile_iter;

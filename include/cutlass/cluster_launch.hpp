@@ -124,6 +124,10 @@ struct ClusterLauncher {
       return Status::kInvalid;
     }
 
+    size_t smemSizeBytes;
+  cudaOccupancyAvailableDynamicSMemPerBlock(&smemSizeBytes, kernel, 1, block_dims.x);
+  std::cout << "Available smem per block: " << smemSizeBytes << " bytes\n";
+
     auto init_status = init(kernel);
     if (init_status != Status::kSuccess) {
       CUTLASS_TRACE_HOST("ClusterLauncher: init(kernel) failed with status " << int(init_status) << ". Aborting.");
@@ -135,6 +139,10 @@ struct ClusterLauncher {
     launch_config.blockDim = {block_dims.x, block_dims.y, block_dims.z};
     launch_config.dynamicSmemBytes = smem_size;
     launch_config.stream = cuda_stream;
+
+    std::cout << "grid dims: " << grid_dims.x << ", " << grid_dims.y << ", " << grid_dims.z << "\n";
+    std::cout << "block dims: " << block_dims.x << ", " << block_dims.y << ", " << block_dims.z << "\n";
+    std::cout << "shared memory size: " << smem_size << " B\n";
 
     cudaLaunchAttribute launch_attribute[1];
     launch_attribute[0].id = cudaLaunchAttributeClusterDimension;

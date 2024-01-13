@@ -49,6 +49,11 @@
 
       $ ./examples/48_hopper_warp_specialized_gemm/48_hopper_warp_specialized_gemm --m=2048 --n=2048 --k=2048
 */
+/// RUN: nvcc -arch=sm_90a -std=c++17 --expt-relaxed-constexpr -I ../../include/ -I ../../examples/common/ -I ../../tools/util/include/ 48_hopper_warp_specialized_gemm.cu -lcuda -lcudart -o test_hopper && ./test_hopper
+/// RUN: nvcc -arch=sm_90a -std=c++17 --expt-relaxed-constexpr -I ../../include/ -I ../../examples/common/ -I ../../tools/util/include/ test_hopper.cu -lcuda -lcudart -o test_hopper && ./test_hopper
+/// RUN: nvcc -arch=sm_90a -std=c++17 --expt-relaxed-constexpr -I ../../include/ -I ../../examples/common/ -I ../../tools/util/include/ test_hopper.cu -lcuda -lcudart -ptx -o test_hopper.ptx
+
+
 
 #include <iostream>
 
@@ -72,7 +77,6 @@
 #include "cutlass/util/reference/device/gemm.h"
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "cutlass/util/reference/device/tensor_fill.h"
-#include "cutlass/device_kernel.h"
 
 #include "helper.h"
 
@@ -96,7 +100,7 @@ constexpr int AlignmentB  = 128 / cutlass::sizeof_bits<ElementB>::value;    // M
 
 // C/D matrix configuration
 using         ElementC    = cutlass::half_t;                                          // Element type for C and D matrix operands
-using         LayoutC     = cutlass::layout::ColumnMajor;                   // Layout type for C and D matrix operands
+using         LayoutC     = cutlass::layout::RowMajor;                   // Layout type for C and D matrix operands
 constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;    // Memory access granularity/alignment of C matrix in units of elements (up to 16 bytes)
 
 // Core kernel configurations
@@ -105,8 +109,23 @@ using ArchTag             = cutlass::arch::Sm90;                            // T
 using OperatorClass       = cutlass::arch::OpClassTensorOp;                 // Operator class tag
 using TileShape           = Shape<_128,_128,_64>;                           // Threadblock-level tile size
 using ClusterShape        = Shape<_2,_1,_1>;                                // Shape of the threadblocks in a cluster
-using StageCountType = cutlass::gemm::KernelTmaWarpSpecializedPingpong;           // Stage count maximized based on the tile size
-using KernelSchedule = cutlass::gemm::collective::KernelScheduleAuto;       // Kernel to launch based on the default setting in the Collective Builder 
+using StageCountType = cutlass::gemm::collective::StageCountAuto;           // Stage count maximized based on the tile size
+// using KernelSchedule = cutlass::gemm::collective::KernelScheduleAuto;       // Kernel to launch based on the default setting in the Collective Builder 
+// using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
+using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
+
+using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
+    ArchTag, OperatorClass,
+    ElementA, LayoutA, AlignmentA,
+    ElementB, LayoutB, AlignmentB,
+    ElementAccumulator,
+    TileShape, ClusterShape,
+    // cutlass::gemm::collective::StageCountAuto,
+    _7,
+    // cutlass::gemm::collective::KernelScheduleAuto
+    cutlass::gemm::KernelTmaWarpSpecializedPingpong
+    // cutlass::gemm::KernelTmaWarpSpecializedCooperative
+  >::CollectiveOp;
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -116,18 +135,6 @@ using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBui
     ElementC, LayoutC, AlignmentC,
     ElementC, LayoutC, AlignmentC,
     cutlass::epilogue::collective::EpilogueScheduleAuto
-  >::CollectiveOp;
-
-using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-    ArchTag, OperatorClass,
-    ElementA, LayoutA, AlignmentA,
-    ElementB, LayoutB, AlignmentB,
-    ElementAccumulator,
-    TileShape, ClusterShape,
-    cutlass::gemm::collective::StageCountAutoCarveout<
-      static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
-    // cutlass::gemm::collective::KernelScheduleAuto
-    cutlass::gemm::KernelTmaWarpSpecializedPingpong
   >::CollectiveOp;
 
 using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
@@ -188,7 +195,7 @@ struct Options {
 
   Options():
     help(false),
-    m(5120), n(4096), k(2048),
+    m(4096), n(4096), k(4096),
     alpha(1.f), beta(0.f),
     iterations(1)
   { }
@@ -297,7 +304,7 @@ bool initialize_block(
 void initialize(const Options &options) {
 
   stride_A = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(options.m, options.k, Int<1>{}));
-  stride_B = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(options.n, options.k, Int<1>{}));
+  stride_B = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(options.k, options.n, Int<1>{}));
   stride_C = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(options.m, options.n, Int<1>{}));
   stride_D = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(options.m, options.n, Int<1>{}));
 
@@ -361,10 +368,6 @@ bool verify(const Options &options) {
 template <typename Gemm>
 int run(Options &options)
 {
-  void const* kernel = (void const*) cutlass::device_kernel<typename Gemm::GemmKernel>;
-  size_t smemSizeBytes;
-  cudaOccupancyAvailableDynamicSMemPerBlock(&smemSizeBytes, kernel, 1, 384);
-  std::cout << "1 Available smem per block: " << smemSizeBytes << " bytes\n";
   initialize(options);
 
   // Instantiate CUTLASS kernel depending on templates
@@ -379,17 +382,11 @@ int run(Options &options)
   // Allocate workspace memory
   cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
 
-  cudaOccupancyAvailableDynamicSMemPerBlock(&smemSizeBytes, kernel, 1, 384);
-  std::cout << "2 Available smem per block: " << smemSizeBytes << " bytes\n";
-
   // Check if the problem size is supported or not
   CUTLASS_CHECK(gemm.can_implement(arguments));
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
   CUTLASS_CHECK(gemm.initialize(arguments, workspace.get()));
-
-  cudaOccupancyAvailableDynamicSMemPerBlock(&smemSizeBytes, kernel, 1, 384);
-  std::cout << "3 Available smem per block: " << smemSizeBytes << " bytes\n";
 
   // Correctness / Warmup iteration
   CUTLASS_CHECK(gemm.run());
@@ -410,7 +407,6 @@ int run(Options &options)
     GpuTimer timer;
     timer.start();
     for (int iter = 0; iter < options.iterations; ++iter) {
-      CUTLASS_CHECK(gemm.initialize(arguments, workspace.get()));
       CUTLASS_CHECK(gemm.run());
     }
     timer.stop();
@@ -479,3 +475,52 @@ int main(int argc, char const **args) {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
+
+// void cutlass::device_kernel(typename Operator::Params)
+using Operator =
+  cutlass::gemm::kernel::GemmUniversal<
+    cute::tuple<int, int, int>,
+    cutlass::gemm::collective::CollectiveMma<
+      cutlass::gemm::MainloopSm90TmaGmmaWarpSpecialized<
+        7,
+        cute::tuple<cute::C<2>, cute::C<1>, cute::C<1> >,
+        cutlass::gemm::KernelTmaWarpSpecializedPingpong
+      >,
+      cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, 
+      cutlass::half_t, 
+      cute::tuple<long int, cute::C<1>, long int>, 
+      cutlass::half_t, 
+      cute::tuple<long int, cute::C<1>, long int>, 
+      cute::TiledMMA<
+        cute::MMA_Atom<
+          cute::SM90_64x128x16_F32F16F16_SS<cute::GMMA::Major::K, cute::GMMA::Major::K, cute::GMMA::ScaleIn::One, cute::GMMA::ScaleIn::One> 
+        >, 
+        cute::Layout<cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> > >, 
+        cute::tuple<cute::Underscore, cute::Underscore, cute::Underscore> 
+      >, 
+      cute::SM90_TMA_LOAD, 
+      cute::ComposedLayout<cute::Swizzle<3, 4, 3>, cute::smem_ptr_flag_bits<16>, cute::Layout<cute::tuple<cute::C<8>, cute::C<64> >, cute::tuple<cute::C<64>, cute::C<1> > > >, 
+      void, 
+      cute::identity, 
+      cute::SM90_TMA_LOAD_MULTICAST, 
+      cute::ComposedLayout<cute::Swizzle<3, 4, 3>, cute::smem_ptr_flag_bits<16>, cute::Layout<cute::tuple<cute::C<8>, cute::C<64> >, cute::tuple<cute::C<64>, cute::C<1> > > >, 
+      void, 
+      cute::identity
+    >,
+    cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
+      cutlass::epilogue::collective::DefaultEpilogue<
+        cute::tuple<cute::C<1>, long int, long int>, 
+        cute::tuple<cute::C<1>, long int, long int>, 
+        cutlass::epilogue::thread::LinearCombination<
+          cutlass::half_t, 
+          1, 
+          float, 
+          float, 
+          cutlass::epilogue::thread::ScaleType::Default, 
+          cutlass::FloatRoundStyle::round_to_nearest, 
+          cutlass::half_t
+        >, 
+      cutlass::gemm::EpilogueDefault> 
+    >, 
+    void
+  >;

@@ -302,6 +302,7 @@ public:
       // Account for dynamic smem capacity if needed
       //
       int smem_size = GemmKernel::SharedStorageSize;
+      std::cout << "here~" << std::endl;
 
       CUTLASS_ASSERT(cuda_adapter == nullptr);
 
